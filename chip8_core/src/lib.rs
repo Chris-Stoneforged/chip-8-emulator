@@ -1,3 +1,6 @@
+
+use std::fmt::Display;
+
 pub const SCREEN_WIDTH: usize = 64; 
 pub const SCREEN_HEIGHT: usize = 32;
 const RAM_SIZE: usize = 4096;
@@ -27,21 +30,35 @@ const FONTSET: [u8; FONTSET_SIZE] = [
 
 struct Op {
     op: u16,
-    digit1: u8,
-    digit2: u8,
-    digit3: u8,
-    digit4: u8, 
+    d1: u8,
+    d2: u8,
+    d3: u8,
+    d4: u8, 
 }
 
 impl Op {
     fn from_opcode(opcode: u16) -> Self{
         Self {
             op: opcode,
-            digit1: ((opcode & 0xF000) >> 12) as u8,
-            digit2: ((opcode & 0x0F00) >> 8) as u8, 
-            digit3: ((opcode & 0x00F0) >> 4) as u8, 
-            digit4: (opcode & 0x000F) as u8,
+            d1: ((opcode & 0xF000) >> 12) as u8,
+            d2: ((opcode & 0x0F00) >> 8) as u8, 
+            d3: ((opcode & 0x00F0) >> 4) as u8, 
+            d4: (opcode & 0x000F) as u8,
         }
+    }
+
+    fn get_nn(&self) -> u8 {
+        (self.op & 0xFF) as u8
+    }
+
+    fn get_nnn(&self) -> u16 {
+        self.op & 0xFFF
+    }
+}
+
+impl Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.op)
     }
 }
 
@@ -142,9 +159,9 @@ impl Emu {
     }
 
     fn execute(&mut self, op: Op) { 
-        let Op{ op, digit1, digit2, digit3, digit4} = op;
+        let Op{ d1, d2, d3, d4, ..} = op;
 
-        match (digit1, digit2, digit3, digit4) {
+        match (d1, d2, d3, d4) {
             // NOP
             (0, 0, 0, 0) => return,
             // CLEAR SCREEN
@@ -158,14 +175,31 @@ impl Emu {
             },
             // JUMP TO NNN
             (1, _, _, _) => {
-                let nnn = op & 0xFFF; 
-                self.pc = nnn;
+                self.pc = op.get_nnn();
             },
             // CALL SUBROUTINE NNN
             (2, _, _, _) => {
-                let nnn = op & 0xFFF; 
+                let nnn = op.get_nnn(); 
                 self.stack.push(self.pc); 
                 self.pc = nnn;
+            },
+            // SKIP IF VX == NN
+            (3, x, _, _) => {
+                if self.v_reg[x as usize] == op.get_nn() {
+                    self.pc += 2;
+                }
+            },    
+            // SKIP IF VX != NN
+            (4, x, _, _) => {
+                if self.v_reg[x as usize] != op.get_nn() {
+                self.pc += 2;
+                } 
+            },
+            // SKIP VX == VY
+            (5, x, y, 0) => {
+                if self.v_reg[x as usize] == self.v_reg[y as usize] {
+                    self.pc += 2;
+                } 
             },
             (_, _, _, _) => unimplemented!("Unimplemented opcode: {}", op), 
         }
