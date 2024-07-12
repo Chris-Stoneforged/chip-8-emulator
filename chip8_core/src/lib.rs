@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 pub const SCREEN_WIDTH: usize = 64; 
 pub const SCREEN_HEIGHT: usize = 32;
 const RAM_SIZE: usize = 4096;
@@ -26,18 +24,66 @@ const FONTSET: [u8; FONTSET_SIZE] = [
     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E 
     0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 ];
+
+struct Op {
+    op: u16,
+    digit1: u8,
+    digit2: u8,
+    digit3: u8,
+    digit4: u8, 
+}
+
+impl Op {
+    fn from_opcode(opcode: u16) -> Self{
+        Self {
+            op: opcode,
+            digit1: ((opcode & 0xF000) >> 12) as u8,
+            digit2: ((opcode & 0x0F00) >> 8) as u8, 
+            digit3: ((opcode & 0x00F0) >> 4) as u8, 
+            digit4: (opcode & 0x000F) as u8,
+        }
+    }
+}
+
+struct Stack {
+    sp: u16,
+    stack: [u16; STACK_SIZE],
+}
+
+impl Stack {
+    pub fn new() -> Self {
+        Self {
+            sp: 0,
+            stack: [0; STACK_SIZE],
+        }
+    }
+
+    fn clear(&mut self) {
+        self.stack = [0; STACK_SIZE];
+        self.sp = 0;
+    }
+
+    fn push(&mut self, val: u16) { 
+        self.stack[self.sp as usize] = val; 
+        self.sp += 1;
+    }
+
+    fn pop(&mut self) -> u16 { 
+        self.sp -= 1;
+        self.stack[self.sp as usize]
+    }       
+}
+
 pub struct Emu {
     pc: u16,
     ram: [u8; RAM_SIZE],
     screen: [bool; SCREEN_WIDTH * SCREEN_HEIGHT],
     v_reg: [u8; NUM_REGS],
     i_reg: u16,
-    sp: u16,
-    stack: [u16; STACK_SIZE],
     keys: [bool; NUM_KEYS],
     dt: u8,
     st: u8,
-
+    stack: Stack,
 }
 
 impl Emu {
@@ -48,11 +94,10 @@ impl Emu {
             screen: [false; SCREEN_WIDTH * SCREEN_HEIGHT],
             v_reg: [0; NUM_REGS],
             i_reg: 0,
-            sp: 0,
-            stack: [0; STACK_SIZE],
             keys: [false; NUM_KEYS],
             dt: 0,
             st: 0,
+            stack: Stack::new(),
         };
 
         new_emu.ram[..FONTSET_SIZE].copy_from_slice(&FONTSET);
@@ -64,22 +109,11 @@ impl Emu {
         self.ram = [0; RAM_SIZE];
         self.screen = [false; SCREEN_WIDTH * SCREEN_HEIGHT]; self.v_reg = [0; NUM_REGS];
         self.i_reg = 0;
-        self.sp = 0;
-        self.stack = [0; STACK_SIZE];
         self.keys = [false; NUM_KEYS];
         self.dt = 0;
         self.st = 0; self.ram[..FONTSET_SIZE].copy_from_slice(&FONTSET);
+        self.stack.clear();
     }
-        
-    fn push(&mut self, val: u16) { 
-        self.stack[self.sp as usize] = val; 
-        self.sp += 1;
-    }
-
-    fn pop(&mut self) -> u16 { 
-        self.sp -= 1;
-        self.stack[self.sp as usize]
-    }       
 
     pub fn tick_timers(&mut self) { 
         if self.dt > 0 {
@@ -119,7 +153,7 @@ impl Emu {
             },
             // RETURN FROM SUBROUTINE
             (0, 0, 0xE, 0xE) => {
-                let ret_addr = self.pop(); 
+                let ret_addr = self.stack.pop(); 
                 self.pc = ret_addr;
             },
             // JUMP TO NNN
@@ -130,30 +164,10 @@ impl Emu {
             // CALL SUBROUTINE NNN
             (2, _, _, _) => {
                 let nnn = op & 0xFFF; 
-                self.push(self.pc); 
+                self.stack.push(self.pc); 
                 self.pc = nnn;
             },
             (_, _, _, _) => unimplemented!("Unimplemented opcode: {}", op), 
-        }
-    }
-}
-
-struct Op {
-    op: u16,
-    digit1: u8,
-    digit2: u8,
-    digit3: u8,
-    digit4: u8, 
-}
-
-impl Op {
-    fn from_opcode(opcode: u16) -> Self{
-        Self {
-            op: opcode,
-            digit1: ((opcode & 0xF000) >> 12) as u8,
-            digit2: ((opcode & 0x0F00) >> 8) as u8, 
-            digit3: ((opcode & 0x00F0) >> 4) as u8, 
-            digit4: (opcode & 0x000F) as u8,
         }
     }
 }
