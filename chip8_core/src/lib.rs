@@ -121,6 +121,20 @@ impl Emu {
         new_emu
     }
 
+    pub fn get_display(&self) -> &[bool] { 
+        &self.screen
+    }
+    
+    pub fn keypress(&mut self, idx: usize, pressed: bool) { 
+        self.keys[idx] = pressed;
+    }
+
+    pub fn load(&mut self, data: &[u8]) {
+        let start = START_ADDR as usize;
+        let end = (START_ADDR as usize) + data.len(); 
+        self.ram[start..end].copy_from_slice(data);
+    }
+
     pub fn reset(&mut self) {
         self.pc = START_ADDR;
         self.ram = [0; RAM_SIZE];
@@ -144,8 +158,7 @@ impl Emu {
         }    
     }
 
-    pub fn tick(&mut self) { 
-        // Fetch
+    pub fn tick(&mut self) {
         let op = self.fetch();
         self.execute(op)
     }
