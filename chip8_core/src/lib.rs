@@ -1,4 +1,4 @@
-
+use rand::random;
 use std::fmt::Display;
 
 pub const SCREEN_WIDTH: usize = 64; 
@@ -184,21 +184,209 @@ impl Emu {
                 self.pc = nnn;
             },
             // SKIP IF VX == NN
-            (3, x, _, _) => {
-                if self.v_reg[x as usize] == op.get_nn() {
+            (3, _, _, _) => {
+                if self.v_reg[d2 as usize] == op.get_nn() {
                     self.pc += 2;
                 }
             },    
             // SKIP IF VX != NN
-            (4, x, _, _) => {
-                if self.v_reg[x as usize] != op.get_nn() {
+            (4, _, _, _) => {
+                if self.v_reg[d2 as usize] != op.get_nn() {
                 self.pc += 2;
                 } 
             },
-            // SKIP VX == VY
-            (5, x, y, 0) => {
-                if self.v_reg[x as usize] == self.v_reg[y as usize] {
+            // SKIP IF VX == VY
+            (5, _, _, 0) => {
+                if self.v_reg[d2 as usize] == self.v_reg[d3 as usize] {
                     self.pc += 2;
+                } 
+            },
+            // SET VX = NN
+            (6, _, _, _) => {
+                self.v_reg[d2 as usize] = op.get_nn();
+            },
+            // SET VX += NN
+            (7, _, _, _) => {
+                let x = d2 as usize;
+                self.v_reg[x] = self.v_reg[x].wrapping_add(op.get_nn());
+            },
+            // SET VX = VY
+            (8, _, _, 0) => {
+                self.v_reg[d2 as usize] = self.v_reg[d3 as usize];
+            },
+            // SET VX |= VY
+            (8, _, _, 1) => {
+                self.v_reg[d2 as usize] |= self.v_reg[d3 as usize];
+            },
+            // SET VX &= VY
+            (8, _, _, 2) => {
+                self.v_reg[d2 as usize] &= self.v_reg[d3 as usize];
+            },
+            // SET VX ^= VY
+            (8, _, _, 3) => {
+                self.v_reg[d2 as usize] ^= self.v_reg[d3 as usize];
+            },
+            // SET VX += VY
+            (8, _, _, 4) => {
+                let x = d2 as usize;
+                let (new_vx, carry) = self.v_reg[x].overflowing_add(self.v_reg[d3 as usize]); 
+                let new_vf = if carry { 1 } else { 0 };
+                self.v_reg[x] = new_vx;
+                self.v_reg[0xF] = new_vf;
+            },
+            // SET VX -= VY
+            (8, _, _, 5) => {
+                let x = d2 as usize;
+                let (new_vx, borrow) = self.v_reg[x].overflowing_sub(self.v_reg[d3 as usize]); 
+                let new_vf = if borrow { 0 } else { 1 };
+                self.v_reg[x] = new_vx;
+                self.v_reg[0xF] = new_vf;
+            },
+            // SET VX >>= 1
+            (8, _, _, 6) => {
+                let x = d2 as usize;
+                let lsb = self.v_reg[x] & 1; 
+                self.v_reg[x] >>= 1; 
+                self.v_reg[0xF] = lsb;
+            },
+            // SET VX = VY - VX
+            (8, _, _, 7) => {
+                let x = d2 as usize;
+                let (new_vx, borrow) = self.v_reg[d3 as usize].overflowing_sub(self.v_reg[x]); 
+                let new_vf = if borrow { 0 } else { 1 };
+                self.v_reg[x] = new_vx;
+                self.v_reg[0xF] = new_vf;
+            },
+            // SET VX <<= 1
+            (8, _, _, 0xE) => {
+                let x = d2 as usize;
+                let msb = (self.v_reg[x] >> 7) & 1; 
+                self.v_reg[x] <<= 1; self.v_reg[0xF] = msb;
+            },
+            // SKIP IF VX == VY
+            (9, _, _, 0) => {
+                if self.v_reg[d2 as usize] != self.v_reg[d3 as usize] {
+                    self.pc += 2;
+                }
+            },
+            // SET I = NNN
+            (0xA, _, _, _) => {
+                self.i_reg = op.get_nnn();
+            },
+            // JMP V0 + NNN
+            (0xB, _, _, _) => {
+                self.pc = (self.v_reg[0] as u16) + op.get_nnn();
+            },
+            // SET VX = rand() & NN
+            (0xC, _, _, _) => {
+                let rng: u8 = random(); 
+                self.v_reg[d2 as usize] = rng & op.get_nn();
+            },
+            // DRAW
+            (0xD, _, _, _) => {
+                let x_coord = self.v_reg[d2 as usize] as u16;
+                let y_coord = self.v_reg[d3 as usize] as u16;
+                let num_rows = d4 as u16;
+                let mut flipped = false;
+
+                for y_line in 0..num_rows {
+                    let addr = self.i_reg + y_line as u16;
+                    let pixels = self.ram[addr as usize];
+
+                    for x_line in 0..8 {
+                        if (pixels & (0b1000_0000 >> x_line)) != 0 {
+                            let x = (x_coord + x_line) as usize % SCREEN_WIDTH;
+                            let y = (y_coord + y_line) as usize % SCREEN_HEIGHT;
+
+                            let idx = x + SCREEN_WIDTH * y;
+                            flipped |= self.screen[idx];
+                            self.screen[idx] ^= true;
+                        }
+                    }
+                }
+
+                self.v_reg[0xF] = if flipped { 1 } else { 0 }
+            },
+            // SKIP KEY PRESS
+            (0xE, _, 9, 0xE) => {
+                let vx = self.v_reg[d2 as usize];
+                let key = self.keys[vx as usize]; 
+                if key {
+                    self.pc += 2;
+                } 
+            },
+            // SKIP KEY RELEASE
+            (0xE, _, 0xA, 1) => {
+                let vx = self.v_reg[d2 as usize];
+                let key = self.keys[vx as usize]; 
+                if !key {
+                    self.pc += 2;
+                } 
+            },
+            // SET VX = DT
+            (0xF, _, 0, 7) => {
+                self.v_reg[d2 as usize] = self.dt;
+            },
+            // WAIT FOR KEY PRESS
+            (0xF, _, 0, 0xA) => {
+                let mut pressed = false;
+                for i in 0..self.keys.len() {
+                    if self.keys[i] { 
+                        self.v_reg[d2 as usize] = i as u8; 
+                        pressed = true;
+                        break;
+                    }
+                }
+                
+                if !pressed {
+                    // Redo opcode
+                    self.pc -= 2;
+                }
+            },
+            // SET DT = VX
+            (0xF, _, 1, 5) => {
+                self.dt = self.v_reg[d2 as usize];
+            },
+            // SET ST = VX
+            (0xF, _, 1, 8) => {
+                self.st = self.v_reg[d2 as usize];
+            },
+            // SET I += VX
+            (0xF, _, 1, 0xE) => {
+                let vx = self.v_reg[d2 as usize] as u16;
+                self.i_reg = self.i_reg.wrapping_add(vx);
+            },
+            // I = FONT
+            (0xF, _, 2, 9) => {
+                let c = self.v_reg[d2 as usize] as u16; 
+                self.i_reg = c * 5;
+            },
+            // BINARY CODED DECIMAL (CONVERT BINARY TO BASE10 DIGITS)
+            (0xF, _, 3, 3) => {
+                let vx = self.v_reg[d2 as usize] as f32;
+                
+                let hundreds = (vx / 100.0).floor() as u8;
+                let tens = ((vx / 10.0) % 10.0).floor() as u8;
+                let ones = (vx % 10.0) as u8;
+
+                self.ram[self.i_reg as usize] = hundreds; 
+                self.ram[(self.i_reg + 1) as usize] = tens; 
+                self.ram[(self.i_reg + 2) as usize] = ones;
+            },
+            // STORE V0 - VX
+            (0xF, _, 5, 5) => {
+                let x = d2 as usize;
+                let i = self.i_reg as usize; 
+                for idx in 0..=x {
+                    self.ram[i + idx] = self.v_reg[idx];
+                }
+            },
+            // LOAD V0 - VX
+            (0xF, _, 6, 5) => {
+                let x = d2 as usize;
+                let i = self.i_reg as usize; 
+                for idx in 0..=x {
+                    self.v_reg[idx] = self.ram[i + idx];
                 } 
             },
             (_, _, _, _) => unimplemented!("Unimplemented opcode: {}", op), 
